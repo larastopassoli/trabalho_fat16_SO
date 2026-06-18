@@ -206,6 +206,95 @@ bool buscarArquivo(fstream& imagem, const BootSector& boot, const string& nomePr
     return false;
 }
 
+bool buscarArquivoComOffset(
+    fstream& imagem,
+    const BootSector& boot,
+    const string& nomeProcurado,
+    EntradaDiretorio& entradaEncontrada,
+    uint32_t& offsetEntrada
+) {
+    uint32_t inicioDiretorioRaiz = calcularInicioDiretorioRaiz(boot);
+
+    imagem.clear();
+    imagem.seekg(inicioDiretorioRaiz, ios::beg);
+
+    string nomeBusca = converterParaMaiusculo(nomeProcurado);
+
+    for (int i = 0; i < boot.entradasDiretorioRaiz; i++) {
+        uint32_t offsetAtual = inicioDiretorioRaiz + (i * sizeof(EntradaDiretorio));
+
+        EntradaDiretorio entrada;
+
+        imagem.clear();
+        imagem.seekg(offsetAtual, ios::beg);
+        imagem.read(reinterpret_cast<char*>(&entrada), sizeof(EntradaDiretorio));
+
+        unsigned char primeiroByte = static_cast<unsigned char>(entrada.nome[0]);
+
+        if (primeiroByte == 0x00) {
+            break;
+        }
+
+        if (entradaValida(entrada)) {
+            string nomeArquivo = converterParaMaiusculo(montarNomeArquivo(entrada));
+
+            if (nomeArquivo == nomeBusca) {
+                entradaEncontrada = entrada;
+                offsetEntrada = offsetAtual;
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+bool nomeValidoFAT83(const string& nomeArquivo, char nomeFormatado[8], char extensaoFormatada[3]) {
+    string nome = converterParaMaiusculo(nomeArquivo);
+
+    size_t posPonto = nome.find('.');
+
+    if (posPonto == string::npos) {
+        cout << "Erro: o nome deve ter extensao. Exemplo: NOVO.TXT\n";
+        return false;
+    }
+
+    if (nome.find('.', posPonto + 1) != string::npos) {
+        cout << "Erro: o nome deve ter apenas um ponto. Exemplo: NOVO.TXT\n";
+        return false;
+    }
+
+    string parteNome = nome.substr(0, posPonto);
+    string parteExtensao = nome.substr(posPonto + 1);
+
+    if (parteNome.empty() || parteNome.length() > 8) {
+        cout << "Erro: o nome deve ter de 1 a 8 caracteres.\n";
+        return false;
+    }
+
+    if (parteExtensao.empty() || parteExtensao.length() > 3) {
+        cout << "Erro: a extensao deve ter de 1 a 3 caracteres.\n";
+        return false;
+    }
+
+    string caracteresInvalidos = "\\/:*?\"<>|";
+
+    for (char c : nome) {
+        if (caracteresInvalidos.find(c) != string::npos) {
+            cout << "Erro: o nome contem caractere invalido para FAT16.\n";
+            return false;
+        }
+    }
+
+    memset(nomeFormatado, ' ', 8);
+    memset(extensaoFormatada, ' ', 3);
+
+    memcpy(nomeFormatado, parteNome.c_str(), parteNome.length());
+    memcpy(extensaoFormatada, parteExtensao.c_str(), parteExtensao.length());
+
+    return true;
+}
+
 string formatarDataFAT(uint16_t data) {
     int ano = ((data >> 9) & 0x7F) + 1980;
     int mes = (data >> 5) & 0x0F;
@@ -367,9 +456,50 @@ void exibirAtributosArquivo(fstream& imagem, const BootSector& boot) {
     cout << "----------------------------------------\n";
 }
 
-void renomearArquivo() {
+void renomearArquivo(fstream& imagem, const BootSector& boot) {
     cout << "\n[RENOMEAR ARQUIVO]\n";
-    cout << "Funcao ainda sera implementada.\n";
+
+    string nomeAtual;
+    string novoNome;
+
+    cout << "Digite o nome atual do arquivo, exemplo TESTE.TXT: ";
+    cin >> nomeAtual;
+
+    EntradaDiretorio entrada;
+    uint32_t offsetEntrada;
+
+    if (!buscarArquivoComOffset(imagem, boot, nomeAtual, entrada, offsetEntrada)) {
+        cout << "Arquivo nao encontrado no diretorio raiz.\n";
+        return;
+    }
+
+    cout << "Digite o novo nome do arquivo, exemplo NOVO.TXT: ";
+    cin >> novoNome;
+
+    EntradaDiretorio entradaExistente;
+
+    if (converterParaMaiusculo(nomeAtual) != converterParaMaiusculo(novoNome) &&
+        buscarArquivo(imagem, boot, novoNome, entradaExistente)) {
+        cout << "Erro: ja existe um arquivo com esse nome.\n";
+        return;
+    }
+
+    char nomeFormatado[8];
+    char extensaoFormatada[3];
+
+    if (!nomeValidoFAT83(novoNome, nomeFormatado, extensaoFormatada)) {
+        return;
+    }
+
+    memcpy(entrada.nome, nomeFormatado, 8);
+    memcpy(entrada.extensao, extensaoFormatada, 3);
+
+    imagem.clear();
+    imagem.seekp(offsetEntrada, ios::beg);
+    imagem.write(reinterpret_cast<char*>(&entrada), sizeof(EntradaDiretorio));
+    imagem.flush();
+
+    cout << "Arquivo renomeado com sucesso para " << converterParaMaiusculo(novoNome) << ".\n";
 }
 
 void inserirArquivo() {
@@ -423,7 +553,7 @@ int main() {
                 exibirAtributosArquivo(imagem, boot);
                 break;
             case 4:
-                renomearArquivo();
+                renomearArquivo(imagem, boot);
                 break;
             case 5:
                 inserirArquivo();
