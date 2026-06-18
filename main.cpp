@@ -7,6 +7,7 @@
 #include <vector>
 #include <algorithm>
 #include <cctype>
+#include <sstream>
 
 using namespace std;
 
@@ -205,6 +206,32 @@ bool buscarArquivo(fstream& imagem, const BootSector& boot, const string& nomePr
     return false;
 }
 
+string formatarDataFAT(uint16_t data) {
+    int ano = ((data >> 9) & 0x7F) + 1980;
+    int mes = (data >> 5) & 0x0F;
+    int dia = data & 0x1F;
+
+    stringstream ss;
+    ss << setfill('0') << setw(2) << dia << "/"
+       << setfill('0') << setw(2) << mes << "/"
+       << ano;
+
+    return ss.str();
+}
+
+string formatarHoraFAT(uint16_t hora) {
+    int horas = (hora >> 11) & 0x1F;
+    int minutos = (hora >> 5) & 0x3F;
+    int segundos = (hora & 0x1F) * 2;
+
+    stringstream ss;
+    ss << setfill('0') << setw(2) << horas << ":"
+       << setfill('0') << setw(2) << minutos << ":"
+       << setfill('0') << setw(2) << segundos;
+
+    return ss.str();
+}
+
 void exibirInformacoesBootSector(const BootSector& boot) {
     cout << "\n[INFORMACOES DO BOOT SECTOR]\n";
     cout << "Bytes por setor: " << boot.bytesPorSetor << endl;
@@ -237,7 +264,6 @@ void listarConteudoDisco(fstream& imagem, const BootSector& boot) {
 
         unsigned char primeiroByte = static_cast<unsigned char>(entrada.nome[0]);
 
-        // Se encontrou 0x00, não há mais arquivos depois dessa entrada
         if (primeiroByte == 0x00) {
             break;
         }
@@ -306,9 +332,39 @@ void listarConteudoArquivo(fstream& imagem, const BootSector& boot) {
     cout << "\n\n----- FIM DO ARQUIVO -----\n";
 }
 
-void exibirAtributosArquivo() {
+void exibirAtributosArquivo(fstream& imagem, const BootSector& boot) {
     cout << "\n[EXIBIR ATRIBUTOS DE UM ARQUIVO]\n";
-    cout << "Funcao ainda sera implementada.\n";
+
+    string nomeArquivo;
+
+    cout << "Digite o nome do arquivo, exemplo TESTE.TXT: ";
+    cin >> nomeArquivo;
+
+    EntradaDiretorio entrada;
+
+    if (!buscarArquivo(imagem, boot, nomeArquivo, entrada)) {
+        cout << "Arquivo nao encontrado no diretorio raiz.\n";
+        return;
+    }
+
+    cout << "\n----- ATRIBUTOS DE " << montarNomeArquivo(entrada) << " -----\n";
+
+    cout << "Nome: " << montarNomeArquivo(entrada) << endl;
+    cout << "Tamanho: " << entrada.tamanhoArquivo << " bytes" << endl;
+    cout << "Primeiro cluster: " << entrada.primeiroCluster << endl;
+
+    cout << "Data de criacao: " << formatarDataFAT(entrada.dataCriacao) << endl;
+    cout << "Hora de criacao: " << formatarHoraFAT(entrada.horaCriacao) << endl;
+
+    cout << "Data da ultima modificacao: " << formatarDataFAT(entrada.dataModificacao) << endl;
+    cout << "Hora da ultima modificacao: " << formatarHoraFAT(entrada.horaModificacao) << endl;
+
+    cout << "\nAtributos:\n";
+    cout << "Somente leitura: " << ((entrada.atributos & 0x01) ? "Sim" : "Nao") << endl;
+    cout << "Oculto: " << ((entrada.atributos & 0x02) ? "Sim" : "Nao") << endl;
+    cout << "Arquivo de sistema: " << ((entrada.atributos & 0x04) ? "Sim" : "Nao") << endl;
+
+    cout << "----------------------------------------\n";
 }
 
 void renomearArquivo() {
@@ -364,7 +420,7 @@ int main() {
                 listarConteudoArquivo(imagem, boot);
                 break;
             case 3:
-                exibirAtributosArquivo();
+                exibirAtributosArquivo(imagem, boot);
                 break;
             case 4:
                 renomearArquivo();
@@ -389,7 +445,8 @@ int main() {
     return 0;
 }
 
+// Para compilar:
+// g++ main.cpp -o main
 
-
-//g++ main.cpp -o main
-//./main
+// Para executar:
+// ./main
